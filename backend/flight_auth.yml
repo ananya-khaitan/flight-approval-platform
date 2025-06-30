@@ -1,0 +1,899 @@
+openapi: 3.0.3
+info:
+  title: UAS Flight Authorization Service API
+  description: |
+    API specification for UAS Flight Authorization Service as defined in EU Implementing Regulation 2021/664, Article 10.
+    This service provides flight authorizations to UAS operators for individual flights within U-space airspace.
+  version: 1.0.0
+  contact:
+    name: U-space Service Provider
+    email: support@ussp-provider.com
+  license:
+    name: EU Regulation 2021/664
+    url: https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32021R0664
+
+servers:
+  - url: https://api.ussp-provider.com/v1
+    description: Production U-space Service Provider
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
+paths:
+  /flight-authorizations:
+    post:
+      summary: Submit UAS Flight Authorization Request
+      description: |
+        Submit a request for UAS flight authorization. The USSP will check if the request is complete, 
+        correct, and free of intersection with other authorized flights according to Article 10(2).
+      operationId: submitFlightAuthorizationRequest
+      tags:
+        - Flight Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlightAuthorizationRequest'
+      responses:
+        '201':
+          description: Flight authorization request submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightAuthorizationResponse'
+        '400':
+          description: Invalid or incomplete request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Flight authorization conflicts with existing authorizations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictResponse'
+        '422':
+          description: Request violates airspace restrictions or limitations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: List Flight Authorizations
+      description: Retrieve list of flight authorizations for the authenticated UAS operator
+      operationId: listFlightAuthorizations
+      tags:
+        - Flight Authorization
+      parameters:
+        - name: status
+          in: query
+          description: Filter by authorization status
+          schema:
+            type: string
+            enum: [pending, accepted, rejected, activated, ended, withdrawn]
+        - name: from_date
+          in: query
+          description: Filter authorizations from this date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: to_date
+          in: query
+          description: Filter authorizations to this date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: List of flight authorizations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorizations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FlightAuthorizationSummary'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+
+  /flight-authorizations/{authorizationId}:
+    get:
+      summary: Get Flight Authorization Details
+      description: Retrieve detailed information about a specific flight authorization
+      operationId: getFlightAuthorization
+      tags:
+        - Flight Authorization
+      parameters:
+        - name: authorizationId
+          in: path
+          required: true
+          description: Unique authorization number
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Flight authorization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightAuthorizationDetails'
+        '404':
+          description: Flight authorization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Update Flight Authorization
+      description: |
+        Update an existing flight authorization. Updates are only allowed if they don't create 
+        new conflicts according to Article 10(10).
+      operationId: updateFlightAuthorization
+      tags:
+        - Flight Authorization
+      parameters:
+        - name: authorizationId
+          in: path
+          required: true
+          description: Unique authorization number
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlightAuthorizationUpdateRequest'
+      responses:
+        '200':
+          description: Flight authorization updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightAuthorizationResponse'
+        '400':
+          description: Invalid update request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Update would create conflicts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictResponse'
+
+    delete:
+      summary: Withdraw Flight Authorization
+      description: |
+        Withdraw a flight authorization. Can be done by UAS operator or USSP according to Article 10(10)
+        when conflicts arise with higher priority flights or emergency situations.
+      operationId: withdrawFlightAuthorization
+      tags:
+        - Flight Authorization
+      parameters:
+        - name: authorizationId
+          in: path
+          required: true
+          description: Unique authorization number
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Reason for withdrawal
+                  enum: [operator_request, conflict_detected, emergency_aircraft, dynamic_restriction]
+      responses:
+        '204':
+          description: Flight authorization withdrawn successfully
+        '404':
+          description: Flight authorization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /flight-authorizations/{authorizationId}/activate:
+    post:
+      summary: Activate Flight Authorization
+      description: |
+        Activate an accepted flight authorization according to Article 10(5). 
+        This triggers the provision of tactical services like traffic information and conformance monitoring.
+      operationId: activateFlightAuthorization
+      tags:
+        - Flight Activation
+      parameters:
+        - name: authorizationId
+          in: path
+          required: true
+          description: Unique authorization number
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivationRequest'
+      responses:
+        '200':
+          description: Flight authorization activated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivationResponse'
+        '400':
+          description: Invalid activation request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Cannot activate due to conflicts or conditions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictResponse'
+
+  /flight-authorizations/{authorizationId}/end:
+    post:
+      summary: End Active Flight
+      description: |
+        End an active flight authorization. This terminates the provision of tactical services
+        according to Article 10(10).
+      operationId: endFlightAuthorization
+      tags:
+        - Flight Activation
+      parameters:
+        - name: authorizationId
+          in: path
+          required: true
+          description: Unique authorization number
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actual_end_time:
+                  type: string
+                  format: date-time
+                  description: Actual flight end time (ISO 8601)
+                end_reason:
+                  type: string
+                  enum: [normal_completion, emergency_landing, technical_issue, weather_abort]
+                final_position:
+                  $ref: '#/components/schemas/Position3D'
+      responses:
+        '200':
+          description: Flight ended successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  end_time:
+                    type: string
+                    format: date-time
+        '404':
+          description: Flight authorization not found or not active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /airspace-restrictions:
+    get:
+      summary: Get Current Airspace Restrictions
+      description: |
+        Retrieve current airspace restrictions and temporary limitations 
+        according to Article 10(7).
+      operationId: getAirspaceRestrictions
+      tags:
+        - Airspace Information
+      parameters:
+        - name: area
+          in: query
+          description: Geographic bounding box (minLat,minLon,maxLat,maxLon)
+          schema:
+            type: string
+        - name: time_from
+          in: query
+          description: Start time for temporal restrictions (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: time_to
+          in: query
+          description: End time for temporal restrictions (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Current airspace restrictions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restrictions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AirspaceRestriction'
+                  last_updated:
+                    type: string
+                    format: date-time
+
+  /weather-information:
+    get:
+      summary: Get Weather Information
+      description: |
+        Retrieve weather information for flight authorization processing 
+        according to Article 10(3).
+      operationId: getWeatherInformation
+      tags:
+        - Weather Information
+      parameters:
+        - name: area
+          in: query
+          required: true
+          description: Geographic bounding box (minLat,minLon,maxLat,maxLon)
+          schema:
+            type: string
+        - name: time_from
+          in: query
+          required: true
+          description: Start time for weather forecast (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: time_to
+          in: query
+          required: true
+          description: End time for weather forecast (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Weather information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeatherInformation'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  schemas:
+    FlightAuthorizationRequest:
+      type: object
+      required:
+        - uas_registration_number
+        - operator_id
+        - flight_trajectory
+        - operation_mode
+        - flight_type
+        - planned_start_time
+        - planned_end_time
+      properties:
+        uas_registration_number:
+          type: string
+          description: UAS registration number
+          example: "DE-UAS-12345"
+        operator_id:
+          type: string
+          description: UAS operator identifier
+          example: "OP-123456"
+        flight_trajectory:
+          $ref: '#/components/schemas/FlightTrajectory4D'
+        operation_mode:
+          type: string
+          enum: [VLOS, BVLOS_with_observers, BVLOS_automated]
+          description: Mode of UAS operation
+        flight_type:
+          type: string
+          enum: [normal, special_operations]
+          description: Type of flight according to priority rules
+        planned_start_time:
+          type: string
+          format: date-time
+          description: Planned flight start time (ISO 8601)
+        planned_end_time:
+          type: string
+          format: date-time
+          description: Planned flight end time (ISO 8601)
+        contingency_procedures:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContingencyProcedure'
+        weather_requirements:
+          $ref: '#/components/schemas/WeatherRequirements'
+        additional_information:
+          type: string
+          description: Any additional relevant information
+
+    FlightTrajectory4D:
+      type: object
+      required:
+        - trajectory_points
+        - deviation_thresholds
+      properties:
+        trajectory_points:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrajectoryPoint4D'
+          minItems: 2
+        deviation_thresholds:
+          $ref: '#/components/schemas/DeviationThresholds'
+        route_description:
+          type: string
+          description: Human-readable route description
+
+    TrajectoryPoint4D:
+      type: object
+      required:
+        - position
+        - time
+      properties:
+        position:
+          $ref: '#/components/schemas/Position3D'
+        time:
+          type: string
+          format: date-time
+          description: Time at this trajectory point (ISO 8601)
+        speed:
+          type: number
+          format: float
+          description: Ground speed in m/s
+        heading:
+          type: number
+          format: float
+          description: Heading in degrees (0-359)
+
+    Position3D:
+      type: object
+      required:
+        - latitude
+        - longitude
+        - altitude
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          description: Latitude in decimal degrees (WGS84)
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          description: Longitude in decimal degrees (WGS84)
+        altitude:
+          type: number
+          format: float
+          description: Altitude above mean sea level in meters
+        altitude_reference:
+          type: string
+          enum: [MSL, AGL, WGS84]
+          default: MSL
+
+    DeviationThresholds:
+      type: object
+      required:
+        - horizontal
+        - vertical
+        - temporal
+      properties:
+        horizontal:
+          type: number
+          format: float
+          description: Horizontal deviation threshold in meters
+        vertical:
+          type: number
+          format: float
+          description: Vertical deviation threshold in meters
+        temporal:
+          type: number
+          format: float
+          description: Temporal deviation threshold in seconds
+
+    ContingencyProcedure:
+      type: object
+      required:
+        - trigger_condition
+        - procedure_type
+        - safe_landing_areas
+      properties:
+        trigger_condition:
+          type: string
+          enum: [communication_loss, technical_failure, weather_degradation, emergency_aircraft]
+        procedure_type:
+          type: string
+          enum: [return_to_home, emergency_landing, hold_position, predetermined_route]
+        safe_landing_areas:
+          type: array
+          items:
+            $ref: '#/components/schemas/SafeLandingArea'
+
+    SafeLandingArea:
+      type: object
+      required:
+        - center_position
+        - radius
+      properties:
+        center_position:
+          $ref: '#/components/schemas/Position3D'
+        radius:
+          type: number
+          format: float
+          description: Radius of safe landing area in meters
+
+    WeatherRequirements:
+      type: object
+      properties:
+        max_wind_speed:
+          type: number
+          format: float
+          description: Maximum allowable wind speed in m/s
+        min_visibility:
+          type: number
+          format: float
+          description: Minimum visibility in meters
+        max_precipitation:
+          type: number
+          format: float
+          description: Maximum precipitation rate in mm/h
+        temperature_range:
+          type: object
+          properties:
+            min_temperature:
+              type: number
+              format: float
+              description: Minimum operating temperature in Celsius
+            max_temperature:
+              type: number
+              format: float
+              description: Maximum operating temperature in Celsius
+
+    FlightAuthorizationResponse:
+      type: object
+      required:
+        - authorization_id
+        - status
+        - request_time
+        - response_time
+      properties:
+        authorization_id:
+          type: string
+          description: Unique authorization number
+          example: "AUTH-2025-05-26-001234"
+        status:
+          type: string
+          enum: [accepted, rejected]
+        request_time:
+          type: string
+          format: date-time
+          description: Time when request was received
+        response_time:
+          type: string
+          format: date-time
+          description: Time when response was generated
+        terms_and_conditions:
+          type: array
+          items:
+            type: string
+          description: Terms and conditions for the flight authorization
+        deviation_thresholds:
+          $ref: '#/components/schemas/DeviationThresholds'
+        alternative_authorization:
+          $ref: '#/components/schemas/AlternativeAuthorization'
+        rejection_reasons:
+          type: array
+          items:
+            type: string
+          description: Reasons for rejection (if status is rejected)
+
+    AlternativeAuthorization:
+      type: object
+      properties:
+        suggested_start_time:
+          type: string
+          format: date-time
+        suggested_trajectory:
+          $ref: '#/components/schemas/FlightTrajectory4D'
+        reason:
+          type: string
+          description: Reason for suggesting alternative
+
+    FlightAuthorizationDetails:
+      allOf:
+        - $ref: '#/components/schemas/FlightAuthorizationResponse'
+        - type: object
+          properties:
+            original_request:
+              $ref: '#/components/schemas/FlightAuthorizationRequest'
+            current_status:
+              type: string
+              enum: [accepted, activated, ended, withdrawn]
+            activation_time:
+              type: string
+              format: date-time
+            end_time:
+              type: string
+              format: date-time
+            last_updated:
+              type: string
+              format: date-time
+
+    FlightAuthorizationSummary:
+      type: object
+      properties:
+        authorization_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, rejected, activated, ended, withdrawn]
+        planned_start_time:
+          type: string
+          format: date-time
+        planned_end_time:
+          type: string
+          format: date-time
+        flight_type:
+          type: string
+          enum: [normal, special_operations]
+        uas_registration_number:
+          type: string
+
+    FlightAuthorizationUpdateRequest:
+      type: object
+      properties:
+        new_trajectory:
+          $ref: '#/components/schemas/FlightTrajectory4D'
+        new_start_time:
+          type: string
+          format: date-time
+        new_end_time:
+          type: string
+          format: date-time
+        update_reason:
+          type: string
+
+    ActivationRequest:
+      type: object
+      required:
+        - confirmation_terms_accepted
+      properties:
+        confirmation_terms_accepted:
+          type: boolean
+          description: Confirmation that terms and conditions are accepted
+        actual_start_position:
+          $ref: '#/components/schemas/Position3D'
+        estimated_start_time:
+          type: string
+          format: date-time
+          description: Estimated actual start time
+
+    ActivationResponse:
+      type: object
+      required:
+        - activation_status
+        - activation_time
+      properties:
+        activation_status:
+          type: string
+          enum: [activated, rejected]
+        activation_time:
+          type: string
+          format: date-time
+        rejection_reason:
+          type: string
+          description: Reason for activation rejection
+        traffic_information_available:
+          type: boolean
+          description: Whether traffic information service is available
+        conformance_monitoring_active:
+          type: boolean
+          description: Whether conformance monitoring is active
+
+    AirspaceRestriction:
+      type: object
+      required:
+        - restriction_id
+        - restriction_type
+        - affected_area
+        - effective_period
+      properties:
+        restriction_id:
+          type: string
+        restriction_type:
+          type: string
+          enum: [permanent, temporary, dynamic, no_fly_zone, restricted_access]
+        affected_area:
+          $ref: '#/components/schemas/GeographicArea'
+        effective_period:
+          $ref: '#/components/schemas/TimePeriod'
+        altitude_limits:
+          type: object
+          properties:
+            minimum_altitude:
+              type: number
+              format: float
+            maximum_altitude:
+              type: number
+              format: float
+        entry_requirements:
+          type: array
+          items:
+            type: string
+          description: Special permissions or equipment required
+        description:
+          type: string
+
+    GeographicArea:
+      type: object
+      required:
+        - area_type
+      properties:
+        area_type:
+          type: string
+          enum: [polygon, circle, rectangle]
+        coordinates:
+          type: array
+          description: Coordinates defining the area (format depends on area_type)
+          items:
+            type: number
+
+    TimePeriod:
+      type: object
+      required:
+        - start_time
+        - end_time
+      properties:
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+
+    WeatherInformation:
+      type: object
+      required:
+        - forecast_time
+        - weather_data
+      properties:
+        forecast_time:
+          type: string
+          format: date-time
+        weather_data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeatherDataPoint'
+        source:
+          type: string
+          description: Weather information source
+        last_updated:
+          type: string
+          format: date-time
+
+    WeatherDataPoint:
+      type: object
+      required:
+        - position
+        - time
+        - conditions
+      properties:
+        position:
+          $ref: '#/components/schemas/Position3D'
+        time:
+          type: string
+          format: date-time
+        conditions:
+          type: object
+          properties:
+            wind_speed:
+              type: number
+              format: float
+              description: Wind speed in m/s
+            wind_direction:
+              type: number
+              format: float
+              description: Wind direction in degrees
+            visibility:
+              type: number
+              format: float
+              description: Visibility in meters
+            precipitation:
+              type: number
+              format: float
+              description: Precipitation rate in mm/h
+            temperature:
+              type: number
+              format: float
+              description: Temperature in Celsius
+            pressure:
+              type: number
+              format: float
+              description: Atmospheric pressure in hPa
+
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    ConflictResponse:
+      type: object
+      required:
+        - conflict_type
+        - message
+      properties:
+        conflict_type:
+          type: string
+          enum: [temporal_conflict, spatial_conflict, priority_conflict, capacity_limit]
+        message:
+          type: string
+        conflicting_authorizations:
+          type: array
+          items:
+            type: string
+          description: IDs of conflicting authorizations
+        suggested_alternatives:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlternativeAuthorization'
+
+tags:
+  - name: Flight Authorization
+    description: Operations for UAS flight authorization requests and management
+  - name: Flight Activation
+    description: Operations for activating and ending flights
+  - name: Airspace Information
+    description: Information about airspace restrictions and limitations
+  - name: Weather Information
+    description: Weather information for flight planning and authorization
