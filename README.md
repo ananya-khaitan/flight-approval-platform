@@ -8,4 +8,4 @@ Open a terminal in the backend folder and type the following commands :
 
 Open a terminal in the frontend folder and type the following commands : 
 - flutter pub get
-- flutter run
+- flutter run -d chrome
