@@ -210,7 +210,7 @@ class _FlightFormState extends State<FlightForm> {
         _altRef == null ||
         _trajTime == null) return;
 
-    // Build the FlightAuthorizationRequest first:
+    // Build the FlightAuthorizationRequest object
     final req = FlightAuthorizationRequest((b) => b
       ..uasRegistrationNumber = _uasRegCtrl.text
       ..operatorId = _operatorCtrl.text
@@ -252,18 +252,7 @@ class _FlightFormState extends State<FlightForm> {
       _response = null;
     });
 
-    // Local evaluation
-    final rejectionReasons = <String>[];
-    final accepted = evaluateRequestLocally(req, rejectionReasons);
-    if (!accepted) {
-      setState(() {
-        _response = 'Rejected:\n' + rejectionReasons.join('\n');
-        _loading = false;
-      });
-      return;
-    }
-
-    // If accepted locally, call backend
+    // Send to backend
     try {
       final client =
           App(dio: Dio(BaseOptions(baseUrl: 'http://localhost:8080')));
@@ -271,9 +260,14 @@ class _FlightFormState extends State<FlightForm> {
       final res = await api.submitFlightAuthorizationRequest(
           flightAuthorizationRequest: req);
 
-      setState(() => _response = (res.data?.status != null)
-          ? (res.data!.status.name ?? res.data!.status.toString())
-          : 'No status');
+      final status = res.data?.status?.name ?? res.data?.status.toString();
+      final reasons = res.data?.rejectionReasons?.map((r) => '• $r').join('\n');
+
+      setState(() {
+        _response = (status == 'accepted')
+            ? '✅ Flight Approved'
+            : '❌ Flight Rejected\nReasons:\n$reasons';
+      });
     } catch (e) {
       setState(() => _response = 'Error: $e');
     } finally {
